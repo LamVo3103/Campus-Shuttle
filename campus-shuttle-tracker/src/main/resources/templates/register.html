@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Đăng ký</title>
+    <style>
+        body { font-family: Arial, sans-serif; display: grid; place-items: center; min-height: 90vh; background-color: #f4f4f4; }
+        form { background: #fff; border: 1px solid #ccc; padding: 25px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        h2 { text-align: center; }
+        div { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input { width: 300px; padding: 8px; box-sizing: border-box; }
+        button { width: 100%; padding: 10px; background-color: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .error { color: red; background-color: #ffebee; padding: 10px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <form th:action="@{/register}" method="post">
+        <h2>Đăng ký tài khoản</h2>
+
+        <div th:if="${error_message}" class="error" th:text="${error_message}"></div>
+
+        <div>
+            <label for="studentId">Mã sinh viên:</label>
+            <input type="text" id="studentId" name="studentId" required>
+        </div>
+        <div>
+            <label for="name">Họ và tên:</label>
+            <input type="text" id="name" name="name" required>
+        </div>
+        <div>
+            <label for="email">Email:</label>
+            <input type="email" id="email" name="email" required>
+        </div>
+        <div>
+            <label for="password">Mật khẩu:</label>
+            <input type="password" id="password" name="password" required>
+        </div>
+        <button type="submit">Đăng ký</button>
+        <div style="text-align: center; margin-top: 15px;">
+            Đã có tài khoản? <a th:href="@{/login}">Đăng nhập</a>
+        </div>
+    </form>
+</body>
+</html>

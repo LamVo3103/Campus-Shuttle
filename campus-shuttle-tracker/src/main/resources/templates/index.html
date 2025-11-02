@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head>
+    <meta charset="UTF-8">
+    <title>Campus Shuttle Tracker</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+     
+    <script src="https://cdn.jsdelivr.net/npm/sockjs-client@1/dist/sockjs.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/stompjs@2.3.3/lib/stomp.min.js"></script>
+     
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 0; }
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 20px;
+            background-color: #f8f8f8;
+            border-bottom: 1px solid #ddd;
+        }
+        h1 { margin: 0; }
+        #map { 
+            height: calc(100vh - 80px); /* 100% chiều cao trừ đi header */
+            width: 100%; 
+            position: relative; /* Dùng để định vị banner */
+        }
+        .logout-form form { margin: 0; }
+        .logout-form button {
+            padding: 8px 12px;
+            background-color: #d9534f;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        
+        /* --- (MỚI) CSS CHO BANNER CẢNH BÁO --- */
+        #alert-banner {
+            position: absolute; /* Nổi đè lên trên bản đồ */
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 80%;
+            background-color: #f8d7da; /* Màu đỏ cảnh báo */
+            color: #721c24;
+            padding: 15px;
+            border: 1px solid #f5c6cb;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: bold;
+            z-index: 1000; /* Luôn nổi lên trên */
+            display: none; /* Mặc định ẩn đi */
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">
+        <h1>Campus Shuttle Tracker</h1>
+        <div class="logout-form" sec:authorize="isAuthenticated()">
+            <span>Xin chào, <b sec:authentication="name">User</b></span>
+            <form th:action="@{/logout}" method="post" style="display: inline;">
+                <button type="submit">Đăng xuất</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="map">
+        <div id="alert-banner"></div>
+    </div>
+
+    <script>
+        const mapCenter = [10.77900, 106.69070];
+        // Sửa: Phải lấy thẻ 'map' từ DOM
+        const mapElement = document.getElementById('map');
+        const map = L.map(mapElement).setView(mapCenter, 17); // Khởi tạo bản đồ trên thẻ div
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+        }).addTo(map);
+
+        
+        // --- Định nghĩa icon (Dùng icon .jpg của bạn) ---
+        const busIcon = L.icon({
+            iconUrl: '/images/bus.jpg', 
+            iconSize:     [38, 38], 
+            iconAnchor:   [19, 38], 
+            popupAnchor:  [0, -38]  
+        });
+
+        const stopIcon = L.icon({
+            iconUrl: '/images/busstation.jpg', 
+            iconSize:     [32, 32], 
+            iconAnchor:   [16, 32], 
+            popupAnchor:  [0, -32]  
+        });
+
+        const busMarkers = new Map(); 
+
+        // --- Hàm tải dữ liệu ban đầu ---
+        async function loadMapData() {
+            try {
+                // Tải trạm dừng
+                const stopsResponse = await fetch('/api/stops');
+                const stops = await stopsResponse.json();
+                stops.forEach(stop => {
+                    L.marker([stop.latitude, stop.longitude], { icon: stopIcon }) 
+                        .addTo(map)
+                        .bindPopup(`<b>Trạm: ${stop.name}</b>`);
+                });
+
+                // Tải xe bus
+                const busesResponse = await fetch('/api/buses');
+                const buses = await busesResponse.json();
+                
+                buses.forEach(bus => {
+                    // (SỬA) Thêm crowdedness vào popup
+                    const popupContent = `<b>Xe bus: ${bus.licensePlate}</b><br>ETA: ${bus.eta || 'N/A'}` +
+                                         `<br>Độ đông: ${bus.crowdedness || 'N/A'}`;
+                    
+                    const marker = L.marker([bus.currentLatitude, bus.currentLongitude], { icon: busIcon }) 
+                        .addTo(map)
+                        .bindPopup(popupContent);
+                    
+                    busMarkers.set(bus.busId, marker);
+                });
+
+            } catch (error) {
+                console.error('Lỗi tải dữ liệu bản đồ:', error);
+            }
+        }
+
+        // --- Hàm kết nối WebSocket ---
+        function connectWebSocket() {
+            const socket = new SockJS('/ws'); 
+            const stompClient = Stomp.over(socket);
+            
+            // (MỚI) Lấy thẻ banner ra
+            const alertBanner = document.getElementById('alert-banner');
+
+            stompClient.connect({}, function(frame) {
+                console.log('Đã kết nối WebSocket: ' + frame);
+                
+                // 1. Lắng nghe kênh CẬP NHẬT VỊ TRÍ
+                stompClient.subscribe('/topic/locations', function(message) {
+                    const bus = JSON.parse(message.body);
+                    updateBusMarker(bus); 
+                });
+                
+                // 2. (MỚI) Lắng nghe kênh CẢNH BÁO DỊCH VỤ
+                stompClient.subscribe('/topic/alerts', function(message) {
+                    const alertText = message.body;
+                    if (alertText) {
+                        alertBanner.textContent = alertText;
+                        alertBanner.style.display = 'block'; // Hiện banner
+                    } else {
+                        alertBanner.style.display = 'none'; // Ẩn banner
+                    }
+                });
+
+            }, function(error) {
+                console.error('Lỗi WebSocket, đang thử kết nối lại...');
+                setTimeout(connectWebSocket, 5000); 
+            });
+        }
+
+        // --- Hàm cập nhật vị trí marker (ĐỂ XE DI CHUYỂN) ---
+        function updateBusMarker(bus) {
+            const marker = busMarkers.get(bus.busId);
+            const newLatLng = [bus.currentLatitude, bus.currentLongitude];
+            
+            // (SỬA) Thêm crowdedness vào popup
+            const newPopupContent = `<b>Xe bus: ${bus.licensePlate}</b><br>ETA: ${bus.eta || 'N/A'}` +
+                                    `<br>Độ đông: ${bus.crowdedness || 'N/A'}`;
+            
+            if (marker) {
+                marker.setLatLng(newLatLng); 
+                marker.setPopupContent(newPopupContent); 
+            } else {
+                const newMarker = L.marker(newLatLng, { icon: busIcon }) 
+                    .addTo(map)
+                    .bindPopup(newPopupContent);
+                busMarkers.set(bus.busId, newMarker);
+            }
+        }
+
+        // --- Chạy các hàm ---
+        loadMapData(); 
+        connectWebSocket(); 
+        
+    </script>
+</body>
+</html>

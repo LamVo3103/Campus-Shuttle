@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="vi" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Đăng nhập</title>
+    <style>
+        body { font-family: Arial, sans-serif; display: grid; place-items: center; min-height: 90vh; background-color: #f4f4f4; }
+        form { background: #fff; border: 1px solid #ccc; padding: 25px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        h2 { text-align: center; }
+        div { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input { width: 300px; padding: 8px; box-sizing: border-box; }
+        button { width: 100%; padding: 10px; background-color: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        .error { color: red; background-color: #ffebee; padding: 10px; border-radius: 4px; }
+        .success { color: green; background-color: #e8f5e9; padding: 10px; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <form th:action="@{/login}" method="post">
+        <h2>Đăng nhập Hệ thống</h2>
+
+        <div th:if="${param.error}" class="error">
+            Mã sinh viên hoặc mật khẩu không đúng.
+        </div>
+
+        <div th:if="${param.logout}" class="success">
+            Bạn đã đăng xuất thành công.
+        </div>
+        
+        <div th:if="${success_message}" class="success" th:text="${success_message}"></div>
+        
+        <div>
+            <label for="username">Mã sinh viên:</label>
+            <input type="text" id="username" name="username" required autofocus>
+        </div>
+        <div>
+            <label for="password">Mật khẩu:</label>
+            <input type="password" id="password" name="password" required>
+        </div>
+        <button type="submit">Đăng nhập</button>
+        <div style="text-align: center; margin-top: 15px;">
+             Chưa có tài khoản? <a th:href="@{/register}">Đăng ký ngay</a>
+        </div>
+    </form>
+</body>
+</html>
